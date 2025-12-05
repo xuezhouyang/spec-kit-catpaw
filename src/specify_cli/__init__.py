@@ -226,6 +226,12 @@ AGENT_CONFIG = {
         "install_url": None,  # IDE-based
         "requires_cli": False,
     },
+    "catpaw": {
+        "name": "CatPaw",
+        "folder": ".catpaw/",
+        "install_url": None,  # IDE-based
+        "requires_cli": False,
+    },
 }
 
 SCRIPT_TYPE_CHOICES = {"sh": "POSIX Shell (bash/zsh)", "ps": "PowerShell"}
@@ -635,8 +641,9 @@ def merge_json_files(existing_path: Path, new_content: dict, verbose: bool = Fal
     return merged
 
 def download_template_from_github(ai_assistant: str, download_dir: Path, *, script_type: str = "sh", verbose: bool = True, show_progress: bool = True, client: httpx.Client = None, debug: bool = False, github_token: str = None) -> Tuple[Path, dict]:
-    repo_owner = "github"
-    repo_name = "spec-kit"
+    # Support custom repository via environment variables for testing and enterprise use
+    repo_owner = os.getenv("SPEC_KIT_REPO_OWNER", "github")
+    repo_name = os.getenv("SPEC_KIT_REPO_NAME", "spec-kit")
     if client is None:
         client = httpx.Client(verify=ssl_context)
 
@@ -945,7 +952,7 @@ def ensure_executable_scripts(project_path: Path, tracker: StepTracker | None = 
 @app.command()
 def init(
     project_name: str = typer.Argument(None, help="Name for your new project directory (optional if using --here, or use '.' for current directory)"),
-    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, windsurf, kilocode, auggie, codebuddy, amp, shai, q, bob, or qoder "),
+    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, windsurf, kilocode, auggie, codebuddy, amp, shai, q, bob, qoder, or catpaw "),
     script_type: str = typer.Option(None, "--script", help="Script type to use: sh or ps"),
     ignore_agent_tools: bool = typer.Option(False, "--ignore-agent-tools", help="Skip checks for AI agent tools like Claude Code"),
     no_git: bool = typer.Option(False, "--no-git", help="Skip git repository initialization"),
@@ -1307,8 +1314,9 @@ def version():
             pass
     
     # Fetch latest template release version
-    repo_owner = "github"
-    repo_name = "spec-kit"
+    # Support custom repository via environment variables for testing and enterprise use
+    repo_owner = os.getenv("SPEC_KIT_REPO_OWNER", "github")
+    repo_name = os.getenv("SPEC_KIT_REPO_NAME", "spec-kit")
     api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
     
     template_version = "unknown"
@@ -1366,4 +1374,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
