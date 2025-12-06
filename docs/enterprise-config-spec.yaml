@@ -1,0 +1,326 @@
+# 企业级 Spec-Kit 配置规范
+# Enterprise-Level Spec-Kit Configuration Specification
+
+# ============================================
+# 1. 模板源配置（多仓库支持）
+# ============================================
+template_sources:
+  # 企业总部级（最高优先级）
+  corporate:
+    type: git                    # git | github | gitlab | bitbucket
+    url: ssh://git@git.company.com/corporate/spec-templates.git
+    branch: main                 # 分支名
+    auth:
+      type: ssh                  # ssh | token | basic
+      key_path: ~/.ssh/corp_id_rsa
+    priority: 1                  # 数字越小优先级越高
+    enforce: true                # 是否强制（不可被团队覆盖）
+    cache_ttl: 3600             # 缓存时间（秒）
+    templates:                   # 此源提供的模板列表
+      - name: constitution
+        path: templates/constitution.md
+        enforce: true            # 此模板强制使用
+        version: v2.1.0         # 版本锁定
+      - name: security-checklist
+        path: templates/security-checklist.md
+        enforce: true
+      - name: compliance-plan
+        path: templates/compliance-plan.md
+        enforce: true
+
+  # 部门级（中等优先级）
+  department:
+    type: git
+    url: https://git.company.com/engineering/templates.git
+    branch: main
+    auth:
+      type: token
+      token_env: DEPT_GIT_TOKEN  # 从环境变量读取
+    priority: 2
+    enforce: false               # 可被团队覆盖
+    templates:
+      - name: spec-template
+        path: templates/spec-template.md
+      - name: plan-template
+        path: templates/plan-template.md
+      - name: code-review
+        path: templates/code-review-checklist.md
+
+  # 团队级（低优先级）
+  team:
+    type: gitlab
+    url: https://gitlab.company.com/team-backend/templates.git
+    branch: develop
+    auth:
+      type: basic
+      username_env: GITLAB_USER
+      password_env: GITLAB_PASS
+    priority: 3
+    enforce: false
+    templates:
+      - name: api-spec
+        path: custom/api-spec-template.md
+      - name: microservice-plan
+        path: custom/microservice-plan.md
+
+  # 公共社区模板（最低优先级，作为后备）
+  public:
+    type: github
+    owner: github
+    repo: spec-kit
+    branch: main
+    auth:
+      type: token
+      token_env: GITHUB_TOKEN
+    priority: 10
+    enforce: false
+    templates:
+      - name: "*"               # 通配符，提供所有标准模板
+
+# ============================================
+# 2. 策略引擎配置（智能推荐与强制执行）
+# ============================================
+policies:
+  # 金融合规项目强制策略
+  - name: financial-compliance
+    description: "金融相关项目必须遵守的合规要求"
+    enabled: true
+    conditions:
+      any:                       # any: 满足任一条件 | all: 满足所有条件
+        - project_tags:
+            contains: ["finance", "payment", "banking"]
+        - tech_stack:
+            contains: ["payment-gateway"]
+    actions:
+      enforce_templates:         # 强制使用的模板
+        - corporate/constitution
+        - corporate/security-checklist
+        - corporate/compliance-plan
+      block_override: true       # 完全禁止覆盖
+      require_audit: true        # 需要审计日志
+    notifications:
+      slack_channel: "#compliance-alerts"
+      email: compliance-team@company.com
+
+  # AI/ML 项目推荐策略
+  - name: ml-project-best-practice
+    description: "AI/ML 项目推荐最佳实践模板"
+    enabled: true
+    conditions:
+      all:
+        - tech_stack:
+            contains: ["machine-learning", "ai", "deep-learning"]
+    actions:
+      recommend_templates:       # 推荐但不强制
+        - department/ml-spec-template
+        - department/model-validation-checklist
+        - department/data-pipeline-plan
+      block_override: false      # 允许覆盖
+      require_approval: true     # 覆盖需要审批
+      approver_roles:            # 审批人角色
+        - ml-lead
+        - ai-architect
+    notifications:
+      slack_channel: "#ml-engineering"
+
+  # 开源项目宽松策略
+  - name: open-source-flexible
+    description: "开源项目允许更灵活的模板选择"
+    enabled: true
+    conditions:
+      all:
+        - project_tags:
+            contains: ["opensource"]
+    actions:
+      recommend_templates:
+        - public/*               # 推荐公共模板
+      block_override: false
+      require_approval: false    # 无需审批
+    notifications:
+      slack_channel: "#opensource"
+
+# ============================================
+# 3. 版本锁定配置
+# ============================================
+template_versions:
+  lock_enabled: true             # 启用版本锁定
+  lock_file: .specify/template-lock.yaml
+  auto_update: false             # 自动更新到最新版本（false=需手动审批）
+
+  locks:
+    corporate/constitution:
+      version: v2.1.0
+      sha256: abc123def456789...
+      locked_at: "2025-12-01T10:00:00Z"
+      locked_by: compliance-team
+      reason: "SOC2 审计要求，未经批准不得更改"
+      expires_at: "2026-06-01T00:00:00Z"  # 锁定过期时间
+
+    corporate/security-checklist:
+      version: v1.8.3
+      sha256: def789abc012345...
+      locked_at: "2025-11-15T14:30:00Z"
+      locked_by: security-team
+      reason: "PCI-DSS 合规要求"
+
+# ============================================
+# 4. 审计与追踪配置
+# ============================================
+audit:
+  enabled: true
+  log_file: .specify/audit.log
+  log_format: json              # json | text
+  log_level: info               # debug | info | warning | error
+
+  # 需要记录的事件
+  tracked_events:
+    - template_override         # 模板覆盖
+    - template_download         # 模板下载
+    - policy_violation          # 策略违规
+    - version_change            # 版本变更
+    - config_modification       # 配置修改
+
+  # 审计日志保留策略
+  retention:
+    days: 365                   # 保留365天
+    archive_after: 90           # 90天后归档
+    archive_path: /archive/specify-audit/
+
+  # 审计报告
+  reports:
+    enabled: true
+    schedule: weekly            # daily | weekly | monthly
+    recipients:
+      - compliance@company.com
+      - engineering-lead@company.com
+    format: pdf                 # pdf | html | csv
+
+# ============================================
+# 5. 缓存与性能配置
+# ============================================
+cache:
+  enabled: true
+  directory: ~/.specify/cache
+  max_size_mb: 500              # 最大缓存大小
+  ttl:
+    templates: 3600             # 模板缓存1小时
+    configs: 1800               # 配置缓存30分钟
+    git_repos: 7200             # Git仓库缓存2小时
+  cleanup:
+    schedule: daily             # 每日清理过期缓存
+    keep_versions: 5            # 保留最近5个版本
+
+# ============================================
+# 6. 通知与集成配置
+# ============================================
+notifications:
+  slack:
+    enabled: true
+    webhook_url_env: SLACK_WEBHOOK_URL
+    default_channel: "#spec-kit-alerts"
+
+  email:
+    enabled: true
+    smtp_host: smtp.company.com
+    smtp_port: 587
+    from_address: spec-kit@company.com
+
+  webhook:
+    enabled: true
+    endpoints:
+      - url: https://api.company.com/spec-kit/events
+        headers:
+          Authorization: Bearer ${WEBHOOK_TOKEN}
+        events:
+          - policy_violation
+          - template_override
+
+# ============================================
+# 7. 权限与访问控制
+# ============================================
+access_control:
+  enabled: true
+  mode: rbac                    # rbac | teams | custom
+
+  roles:
+    - name: admin
+      permissions:
+        - template:*
+        - policy:*
+        - config:*
+        - audit:read
+      members:
+        - engineering-leads
+        - compliance-team
+
+    - name: team-lead
+      permissions:
+        - template:read
+        - template:override_with_approval
+        - config:read
+      members:
+        - team-leads
+
+    - name: developer
+      permissions:
+        - template:read
+        - template:use
+      members:
+        - developers
+
+# ============================================
+# 8. 高级功能
+# ============================================
+advanced:
+  # 模板合并策略
+  merge_strategy:
+    yaml: deep_merge            # deep_merge | overwrite
+    markdown: section_merge     # section_merge | append | overwrite
+    json: deep_merge
+
+  # 模板变量替换
+  variable_substitution:
+    enabled: true
+    syntax: jinja2              # jinja2 | mustache | simple
+    context:
+      company_name: "Acme Corporation"
+      compliance_email: "compliance@company.com"
+      security_policy_url: "https://intranet.company.com/security"
+
+  # 模板验证
+  validation:
+    enabled: true
+    schema_path: .specify/schemas/
+    fail_on_invalid: true
+
+  # 自定义钩子
+  hooks:
+    pre_download:
+      - script: .specify/hooks/pre-download.sh
+        args: ["{{template_name}}"]
+    post_download:
+      - script: .specify/hooks/post-download.sh
+        args: ["{{template_name}}", "{{source}}"]
+    pre_override:
+      - script: .specify/hooks/approval-check.sh
+
+# ============================================
+# 9. 企业级功能开关
+# ============================================
+features:
+  multi_repo_support: true       # 多仓库支持
+  template_inheritance: true     # 模板继承
+  policy_engine: true            # 策略引擎
+  version_locking: true          # 版本锁定
+  audit_logging: true            # 审计日志
+  approval_workflow: true        # 审批工作流
+  offline_mode: false            # 离线模式（企业内网）
+  custom_plugins: true           # 自定义插件
+
+# ============================================
+# 10. 向后兼容
+# ============================================
+compatibility:
+  fallback_to_env_vars: true     # 如果配置文件不存在，回退到环境变量
+  support_legacy_config: true    # 支持旧版配置格式
+  migration_path: .specify/migrations/
