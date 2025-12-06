@@ -1,0 +1,183 @@
+#!/bin/bash
+#
+# Git Post-Checkout Hook: Branch Context Manager
+# 自动保存和恢复分支特定的上下文文件（constitution, AI memory）
+#
+# 安装方法:
+#   cp post-checkout .git/hooks/
+#   chmod +x .git/hooks/post-checkout
+#
+# 或使用自定义 hooks 目录:
+#   cp post-checkout .githooks/
+#   git config core.hooksPath .githooks
+#
+
+# Hook 参数
+PREV_HEAD="$1"   # 前一个 HEAD
+NEW_HEAD="$2"    # 新 HEAD
+CHECKOUT_TYPE="$3"  # 1=分支切换, 0=文件切换
+
+# 只处理分支切换（不处理文件 checkout）
+if [ "$CHECKOUT_TYPE" != "1" ]; then
+    exit 0
+fi
+
+# 配置
+CONTEXT_STORE=".git/branch-contexts"  # 上下文存储目录
+CONTEXT_FILES=(
+    "memory/constitution.md"
+    "CLAUDE.md"
+    "GEMINI.md"
+    "COPILOT.md"
+    "CURSOR.md"
+)
+
+# 颜色定义
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# ========================================
+# 工具函数
+# ========================================
+
+get_branch_name() {
+    # 从 commit hash 获取分支名
+    local commit="$1"
+    git name-rev --name-only "$commit" 2>/dev/null | sed 's/remotes\/origin\///'
+}
+
+get_current_branch() {
+    git symbolic-ref --short HEAD 2>/dev/null
+}
+
+save_context() {
+    local branch="$1"
+
+    if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+        return
+    fi
+
+    echo -e "${BLUE}💾 Saving context for: ${branch}${NC}"
+
+    # 创建存储目录
+    mkdir -p "$CONTEXT_STORE/$branch"
+
+    local saved_count=0
+
+    # 保存每个上下文文件
+    for file in "${CONTEXT_FILES[@]}"; do
+        if [ -f "$file" ]; then
+            cp "$file" "$CONTEXT_STORE/$branch/$file"
+            echo -e "${GREEN}   ✅ Saved $file${NC}"
+            ((saved_count++))
+        fi
+    done
+
+    # 保存元数据
+    cat > "$CONTEXT_STORE/$branch/metadata.json" <<EOF
+{
+  "branch": "$branch",
+  "saved_at": "$(date -Iseconds)",
+  "commit": "$(git rev-parse HEAD)",
+  "saved_by": "$(git config user.name)",
+  "files_saved": $saved_count
+}
+EOF
+
+    if [ $saved_count -gt 0 ]; then
+        echo -e "${GREEN}   ✅ Saved $saved_count context file(s)${NC}"
+    fi
+}
+
+restore_context() {
+    local branch="$1"
+
+    if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+        return
+    fi
+
+    if [ ! -d "$CONTEXT_STORE/$branch" ]; then
+        echo -e "${YELLOW}⚠️  No saved context for: ${branch}${NC}"
+        echo -e "${YELLOW}   Using files from Git${NC}"
+        return
+    fi
+
+    echo -e "${BLUE}📂 Restoring context for: ${branch}${NC}"
+
+    local restored_count=0
+
+    # 恢复每个上下文文件
+    for file in "${CONTEXT_FILES[@]}"; do
+        if [ -f "$CONTEXT_STORE/$branch/$file" ]; then
+            # 确保目标目录存在
+            mkdir -p "$(dirname "$file")"
+
+            cp "$CONTEXT_STORE/$branch/$file" "$file"
+            echo -e "${GREEN}   ✅ Restored $file${NC}"
+            ((restored_count++))
+        fi
+    done
+
+    # 显示元数据
+    if [ -f "$CONTEXT_STORE/$branch/metadata.json" ]; then
+        local saved_at=$(jq -r '.saved_at' "$CONTEXT_STORE/$branch/metadata.json" 2>/dev/null || echo "unknown")
+        echo -e "${GREEN}   📅 Context saved at: ${saved_at}${NC}"
+    fi
+
+    if [ $restored_count -gt 0 ]; then
+        echo -e "${GREEN}   ✅ Restored $restored_count context file(s)${NC}"
+    fi
+}
+
+display_summary() {
+    local prev_branch="$1"
+    local new_branch="$2"
+
+    echo ""
+    echo -e "${GREEN}✅ Branch context switched successfully${NC}"
+    echo -e "   Previous: ${YELLOW}${prev_branch}${NC} (saved)"
+    echo -e "   Current:  ${GREEN}${new_branch}${NC} (restored)"
+    echo ""
+}
+
+# ========================================
+# 主逻辑
+# ========================================
+
+main() {
+    # 获取分支名
+    PREV_BRANCH=$(get_branch_name "$PREV_HEAD")
+    NEW_BRANCH=$(get_current_branch)
+
+    echo ""
+    echo -e "${BLUE}🔄 Branch Context Manager: ${PREV_BRANCH} → ${NEW_BRANCH}${NC}"
+    echo ""
+
+    # 保存前一个分支的上下文
+    if [ -n "$PREV_BRANCH" ] && [ "$PREV_BRANCH" != "HEAD" ]; then
+        save_context "$PREV_BRANCH"
+        echo ""
+    fi
+
+    # 恢复新分支的上下文
+    if [ -n "$NEW_BRANCH" ]; then
+        restore_context "$NEW_BRANCH"
+        echo ""
+    fi
+
+    # 显示摘要
+    display_summary "$PREV_BRANCH" "$NEW_BRANCH"
+
+    # 可选：通知 AI Agent 上下文已更新
+    # 如果有 SessionStart hook，可以在这里触发
+    if [ -f ".claude/hooks/on_context_restored.sh" ]; then
+        bash .claude/hooks/on_context_restored.sh "$NEW_BRANCH" &
+    fi
+}
+
+# 执行主函数
+main
+
+exit 0
