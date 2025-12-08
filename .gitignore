@@ -44,3 +44,7 @@ env/
 .genreleases/
 *.zip
 sdd-*/
+
+# Spec Kit CatPaw-specific files
+.cursorindexingignore
+.specstory
